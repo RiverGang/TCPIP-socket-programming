@@ -94,3 +94,133 @@
         pid_t fork(void);
         // 성공 -> 프로세스 ID, 실패 -> -1 반환
         ```
+
+## 4일차
+- wait() ds32
+- waitpid()
+- 시그널핸들링
+    - 자식 프로세스에서 특정 이벤트 발생 시, 특정 함수의 호출을 운영체제에게 요구
+    - 함수포인터 형태 p235, ds35
+    ```c
+        #include<signal.h>
+        void(*signal(int signo, void (*func)(int)))(int);
+        // 함수 이름 signal
+        // 매개변수 선언 int signo, void(*func)(int)
+        // 반환형 매개변수형이 int이고 반환형이 void인 함수 포인터
+
+        /* signal 함수는 운영체제 별 동작에 차이가 있을 수 있어서 거의  sigaction 함수로 작성되고 있음*/
+
+        int sigaction(int signo, const truct sigaction * act, struct sigaction * oldact);
+        // 성공 -> 0, 실패 -> -1 
+        // * singaction 구조체 변수 = 시그널 발생시 호출될 함수 정보 전달
+
+        struct sigaction 
+        {
+            void (*sa_handler)(int); // 함수 포인터 => 함수 이름
+            sigset_t sa_mask; // 0으로 초기화
+            int sa_flags; // 0으로 초기화
+        }
+    ```
+
+- 멀티태스킹 기반의 다중접속 서버
+    - 클라이언트의 서비스 요청(연결요청)이 있을 때 마다 자식 프로세스 생성하여 서비스 제공
+        1. 에코 서버(부모 프로세스)는 accept 함수호출을 통해 연결 요청 수락
+        2. 이때 얻게 되는 소켓의 파일 디스크립터를 자식 프로세스를 생성해서 넘김
+        3. 자식 프로세스는 전달받은 파일 디스크립터를 바탕으로 서비스 제공
+            - 자식 프로세스는 부모 프로세스가 소유하고 있는 것을 모두 복사하기에 파일 디스크립터를 넘기는 과정은 실질적으로 없음
+
+- TCP의 입출력 루틴(Routine) 분할
+
+- 멀티플렉싱 기반의 서버구현 258p ~ 284p
+    - select 함수
+
+
+## 5일차
+- 리눅스에서의 send & recv 입출력 함수
+    - 윈도우의 send 함수와 선언된 자료형 이름에서 차이가 조금 나지만, 매개변수 순서와 사용법까지 완전히 동일
+    - 옵션정보 -> 비트 OR 연산자(|)를 이용해 둘 이상 함께 전달 가능 (Notion 참고)
+    
+    - TCP에서는 긴급메세지라고 전송속도/경로가 달라지진 않음 -> 단지 긴급메세지라는 표기가 추가되는 것
+
+    - readv & writev 입출력 함수 (ds44)
+        - 여러 버퍼에 나눠 저장되어 있는 데이터를 한번에 전송/수신
+
+        ```c
+            #include <sys/uio.h>
+
+            ssize_t write(int filedes, const struct iovec * iov, int iovcnt);
+            // 성공 -> 전송된 바이트수, 실패 -> -1 반환
+
+            // filedes: 데이터 전송의 목적지를 나타내는 소켓의 파일디스크립터
+            // iov: 구조체 iovec "배열"의 주소 값
+            // iovcnt: 두번째 인자로 전달된 주소 값이 가리키는 배열의 길이
+
+            struct iovec
+            {
+                void * iov_base; // 버퍼의 주소 정
+                size_t iov_len; // 버퍼의 크기 정보
+            }
+
+            writev(1, ptr, 2);
+            /*
+                ptr[0] -> iov_base => | A | B | C | . | . |
+                          iov_len=3
+                ptr[1] -> iov_base => | 1 | 2 | 3 | 4 | . |
+                          iov_len=4
+            */
+        ```
+
+- C언어 표준 입출력 함수 (p338, ds46)
+    - 장점
+        - 이식성(Portability) -> ANSI C에서 표준으로 정의했기에 모든 운영체제가 지원
+        - 버퍼링을 통한 성능 향상
+            - ex) 1 Byte 데이터를 열 번에 걸쳐 (= 열 개의 패킷) 전송 or 10 Byte로 묵어 한번에 전송
+                  패킷 당 40바이트만 잡아도 (실제로 패킷 크기는 이보다 더 큰경우가 많음) 전송하는 데이터가 유의미하게 차이남
+                  40(패킷) x 10(회) = 400 byte
+                  40(패킷) x 1(회) = 40 byte
+        
+        - fgets()/fputs()
+            ```c
+            char *fgets(char *str, int numChars, FILE *stream);
+            // str: 파일에서 읽어 온 문자열 데이터를 저장할 문자열 변수의 주소
+            // numChars: 저장할 문자의 최대 크기 -> 일반적으로 첫번째 매개변수 str의 크기
+            // stream: 해당 파일의 파일포인터
+            // 성공 -> 첫번째 매개 변수의 주소(str), 실패 -> NULL
+
+            int fputs(const char*str, FILE *stream)
+            // file+put+string -> 파일에 문자열 데이터를 집어 넣는 함수
+
+            // str: 파일에 집어 넣을 문자열
+            // stream: 파일의 파일포인터
+            // 성공 -> 0 이상의 수 (양수 or 0), 실패 -> EOF
+            ```
+
+        - fdopen()/fileno()
+            ```c
+            #include <stdio.h>
+            
+            FILE * fdopen(int fildes, const char * mode);
+            // 파일 디스크립터를 파일포인터로 변환
+            // files: 변환할 파일 디스크립터 인자
+            // mode: 생성할 FILE구조체 포인터의 모드(mode) 정보 -> "r", "w" 등
+            // 성공 -> 반환된 파일포인터, 실패 -> NULL
+
+            int fileno(FILE * stream);
+            // 파일포인터를 파일디스크립터로 변환
+            // 성공 -> 파일디스크립터 인자, 실패 -> -1
+            ```
+
+        - fflush()
+            ```c
+            #include <stdio.h>
+            int fflush(FILE* file);
+            // 출력 stream 버퍼를 비워준다 (입력 버퍼는 X)
+            // 성공 -> 0, 실패 -> EOF(-1)
+            ```
+
+        - 입력 스트림과 출력 스트림의 분리 (p353)
+            - 파일포인터 사용 시, Half-close 이용에 차질이 생김
+
+            - 파일디스크립터의 복사와 Half-close
+                - 모든 파일 디스크립터가 소멸되어야 소켓도 소멸
+                
