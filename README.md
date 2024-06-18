@@ -1,5 +1,17 @@
 # TCPIP-socket-programming
 
+- 라즈베리파이 주기적 업데이트/업그레이드
+    - sudo apt update
+    - sudo apt upgrade -y
+
+- 다중접속 서버 구현 방법
+    1. 멀티프로세스
+        - fork()
+    2. IO 멀티플렉싱
+        - select() -> 기능은 떨어지지만(동시접속자 수 100 이하), 윈도우/리눅스 모두 가능(이식성이 좋음)
+        - epoll -> 리눅스 운영체제
+    3. 멀티쓰레드
+
 ## 1일차 (20240611)
 - IP
     - 외부에서 해당컴퓨터를 찾아올 때 필요한 주소 (컴퓨터를 구분)
@@ -133,6 +145,8 @@
 
 - 멀티플렉싱 기반의 서버구현 258p ~ 284p
     - select 함수
+    - 프로세스 하나 (메인 프로세스 = select)
+    - 자원의 사용이 적고, 구현이 쉬움
 
 
 ## 5일차
@@ -224,3 +238,105 @@
             - 파일디스크립터의 복사와 Half-close
                 - 모든 파일 디스크립터가 소멸되어야 소켓도 소멸
                 
+## 6일차
+- select 보다 나은 epoll
+    - epoll_create: epoll 파일 디스크립터 저장소(= epoll 인스턴스) 생성을 운영체제에게 요청
+    - epoll_ctl: 저장소에 파일 디스크립터 등록 및 삭제
+    - epoll_wait: select 함수와 마찬가지로 파일 디스크립터의 상태 변화를 대기/확인
+
+    - p368~p371
+    ```c
+    #include <sys/epoll.h>
+
+    int epoll_create(int size);// close 종료 필요
+    // 성공 -> epoll 파일 디스크립터, 실패 -> -1
+    // size: 인스턴스 크기를 결정하는 인자, 참고로만 사용 (직접적인 결정x)
+
+    int epoll_ctl(int epfd, int op, int fd, struct epoll_event *event);
+    // 성공 -> 0, 실패 -> -1
+    // epfd: 관찰대상을 등록할 저장소 = epoll 인스턴스 파일 디스크립터
+    // op: 관찰대상의 추가/삭제/변경여부 옵션
+    // fd: 관찰대상의 파일 디스크립터
+    // event: 관찰대상의 관찰 이벤트 유형
+
+    struct epoll_event // 구조체 배열
+    {
+        __unit32_t events;
+        epoll_data_t data;
+        ...
+    }
+
+    int epoll_wait(int epfd, struct epoll_event * events, int maxevents, int timeout);
+    // events: 이벤트가 발생한 파일 디스크립터가 채워질 버퍼의 주소 값 
+    // ** 주의 ** epoll_event 구조체 동적할당 필수
+    // maxevents: 두번째 인자로 전달된 주소 값의 버퍼에 등록 가능한 최대 이벤트 수
+    // timeout: 1/1000초 단위 대기시간, -1 전달 => 이벤트 발생까지 무한 대기
+    // 성공-> 이벤트가 발생한 파일 디스크립터의 수, 실패 -> -1
+    ```
+        - ex) epoll_ctl(A, EPOLL_CTL_ADD, B, C)
+        - epoll 인스턴스 A에 파일 디스크립터 B를 등록(ADD)하되 C를 통해 전달된 이벤트의 관찰이 목적
+
+- 레벨트리거(Level Trigger)
+    - 입력 버퍼에 데이트가 남아있는 동안 계속해서 이벤트 등록
+- 엣지트리거(Edge Trigger) 
+    - 데이터가 수신된 상황에서 한번만 이벤트 등록
+
+- 멀티쓰레드 기반의 서버구현
+    - 멀티프로세스의 단점: 컨텍스트 스위칭에 따른 부담
+    - 컨텍스트 스위칭(Context Switching): 프로세스가 RAM에 올라오고 ROM에 다시 내려가는 일련의 동작
+        - 프로세스 실행의 의미 => RAM에 올라와서 실행
+        - 실행이 되지 않는 나머지 프로세스 => 하드디스크 ROM에 저장
+
+    - 쓰레드(Thread)
+        - 장점: 프로세스에 비해 생성 및 컨텍스트 스위칭이 빠르다
+        - 하나의 프로세스 내에 여러개의 쓰레드
+        - 쓰레드는 스택 영역만 각자 독립적으로 유지
+        - 데이터&힙 영역 공유 => 컨텍스트 스위칭 시, 데이터 영역과 힙은 올리고 내릴 필요 X => 이를 이용해 데이터 교환 가능
+        - 프로세스 관점에서 별도의 실행흐름을 구성하는 단위
+
+        ```c
+        int pthread_create (pthread_t *restrict thread, const pthread_attr_t *restrict attr, void *(*start_routine)(void*), void *restrict arg)
+        ```
+
+        - 쓰레드가 정상적으로 종료될 때까지 실행흐름 조절
+
+        ```c
+        pthread_join()
+        ```
+
+        - ds61, p410
+        - 임계영역: 함수 내에 둘 이상의 쓰레드가 동시에 실행하면 문제를 일으키는 하나 이상의 문장으로 묶여있는 코드
+            - 두 쓰레드가 동시에 동일한 메모리 공간에 접근을 하는 경우
+
+        - 쓰레드 동기화
+            - 뮤텍스(Mutex, Mutual Exclusion): 쓰레드의 동시접근을 허용하지 않는다
+            
+            ```c
+            pthread_mutex_t mutex; // 변수
+
+            int pthread_mutex_init() // 초기화
+            int pthread_mutex_destroy() // 소멸
+
+            // 아래와 같이 하나의 세트처럼 묶어서 사용 (시작과 끝을 감싸기)
+            int pthread_mutex_lock() // 임계영역 잠그기
+            // 임계영역 시작
+            //.................
+            // 임계영역 끝
+            int pthread_mutex_unlock() // 임계영역 풀기
+           ```
+
+           - 세마포어(Semaphore): 세마포어 값(Semaphore Value) 정수로 기록되는 키 값을 통해 '실행순서 컨트롤' 중심의 동기화
+
+           ```c
+            #include <semaphore.h>
+            
+            int sem_init(sem_t *sem, int pshared, unsigned int value);
+            int sem_destroy(sem_t *sem);
+            // 성공 -> 0, 실패 -> 0이 아닌 값
+            // sem: 세마포어 생성/소멸 하고자 하는 세마포어 참조 값을 저장하는 변수의 주소
+            // pshared: 0 -> 하나의 프로세스에 의한 세마포어, 0 이외 -> 둘 이상의 프로세스에 의해 접근될 때
+            // value: 생성되는 세마포어 초기 값 설정 1 -> 키 값을 가짐(우선), 0 -> 키 값 x
+
+            int sem_post(sem_t *sem); // 세마포어 값 1 증가
+            int sem_wait(sem_t *sem); // 호출 시, 세마포어 값 1 감소
+           ```
