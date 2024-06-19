@@ -340,3 +340,7 @@
             int sem_post(sem_t *sem); // 세마포어 값 1 증가
             int sem_wait(sem_t *sem); // 호출 시, 세마포어 값 1 감소
            ```
+
+## 7일차
+- Final Test
+    - HTTP 서버 구현
